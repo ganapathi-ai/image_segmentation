@@ -23,6 +23,19 @@ from model_utils import (
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 64 * 1024 * 1024  # 64 MB max upload
 
+# ── Auto-load weights on startup ───────────────────────────
+WEIGHTS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "weights", "final_model.pth")
+_weights_preloaded = False
+
+if os.path.exists(WEIGHTS_PATH):
+    try:
+        with open(WEIGHTS_PATH, "rb") as f:
+            load_weights(f.read())
+        _weights_preloaded = True
+        print(f"Loaded weights from {WEIGHTS_PATH}")
+    except Exception as exc:
+        print(f"Warning: could not pre-load weights: {exc}")
+
 
 @app.route("/")
 def index():
@@ -32,6 +45,15 @@ def index():
 @app.route("/api/health")
 def health():
     return jsonify({"status": "ok"})
+
+
+@app.route("/api/status")
+def status():
+    """Return whether model weights are loaded."""
+    return jsonify({
+        "weights_loaded": is_weights_loaded(),
+        "weights_preloaded": _weights_preloaded,
+    })
 
 
 @app.route("/api/upload-weights", methods=["POST"])

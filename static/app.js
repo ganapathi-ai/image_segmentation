@@ -9,6 +9,23 @@
 // ── State ──────────────────────────────────────────────────
 let weightsLoaded = false;
 
+// ── Boot — check if weights are preloaded ──────────────────
+async function boot() {
+  try {
+    const res = await fetch("/api/status");
+    const data = await res.json();
+    if (data.weights_loaded) {
+      weightsLoaded = true;
+      const drop = $("weights-section");
+      if (drop) drop.style.display = "none";
+      unlockBlock("image-section");
+      unlockBlock("segment-section");
+    }
+  } catch {
+    // Silently fail — user can upload weights manually
+  }
+}
+
 // ── Helpers ────────────────────────────────────────────────
 const $  = (id) => document.getElementById(id);
 const $$ = (sel) => document.querySelectorAll(sel);
@@ -240,4 +257,5 @@ $("segment-btn").addEventListener("click", async () => {
 // ── Boot ───────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
   initScrollReveal();
+  boot();
 });
