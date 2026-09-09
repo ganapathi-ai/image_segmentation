@@ -75,27 +75,36 @@ function unlockBlock(blockId) {
 
 // ── Scroll reveal — staggered, spring-based ────────────────
 function initScrollReveal() {
-  const targets = $$(
-    ".step, .hero-float-card, .bento-cell, .app-block"
-  );
+  // Only reveal elements that are NOT locked app-blocks
+  const targets = $$(".step, .hero-float-card, .bento-cell");
+  const lockedBlocks = $$(".app-block[data-locked]");
 
   const observer = new IntersectionObserver(
     (entries) => {
       entries.forEach((entry) => {
         if (entry.isIntersecting) {
           const el = entry.target;
-          const delay = Array.from(targets).indexOf(el) * 60;
+          const idx = Array.from(targets).indexOf(el);
+          const delay = Math.min(idx * 70, 500);
+
           setTimeout(() => {
             el.style.opacity = "1";
             el.style.transform = "translateY(0)";
             el.style.transition =
               `opacity 0.7s ${spring}, transform 0.7s ${spring}`;
-          }, Math.min(delay, 400));
+
+            // Start perpetual float after reveal settles
+            if (el.classList.contains("hero-float-card")) {
+              setTimeout(() => {
+                el.style.animation = `heroFloat 5s ease-in-out infinite`;
+              }, 700);
+            }
+          }, delay);
           observer.unobserve(el);
         }
       });
     },
-    { threshold: 0.12, rootMargin: "0px 0px -40px 0px" }
+    { threshold: 0.1, rootMargin: "0px 0px -30px 0px" }
   );
 
   targets.forEach((el) => {
@@ -103,21 +112,6 @@ function initScrollReveal() {
     el.style.transform = "translateY(18px)";
     observer.observe(el);
   });
-
-  // Hero floats — use their own staggered reveal
-  const floats = $$(".hero-float-card");
-  const floatObs = new IntersectionObserver(
-    (entries) => {
-      entries.forEach((entry) => {
-        if (entry.isIntersecting) {
-          entry.target.classList.add("visible");
-          floatObs.unobserve(entry.target);
-        }
-      });
-    },
-    { threshold: 0.3 }
-  );
-  floats.forEach((f) => floatObs.observe(f));
 }
 
 // ── Simulated inference progress bar ───────────────────────

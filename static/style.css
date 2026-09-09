@@ -121,7 +121,15 @@ a:hover { opacity: 0.8; }
   background: var(--border);
   transition: background var(--transition);
 }
-.nav-dot.active { background: var(--success); }
+.nav-dot.active {
+  background: var(--success);
+  animation: dotPulse 2.4s ease-in-out infinite;
+}
+
+@keyframes dotPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.4); }
+  50%      { box-shadow: 0 0 0 4px rgba(52, 211, 153, 0); }
+}
 
 /* ── Hero — split layout, left-aligned (anti-center bias) ── */
 .hero {
@@ -191,10 +199,22 @@ a:hover { opacity: 0.8; }
 .hero-float-card.visible {
   opacity: 1;
   transform: translateY(0);
-  transition: opacity 0.6s var(--transition), transform 0.6s var(--transition);
+  transition: opacity 0.7s var(--transition), transform 0.7s var(--transition);
 }
-.hero-float-card.delay-1.visible { transition-delay: 0.1s; }
-.hero-float-card.delay-2.visible { transition-delay: 0.2s; }
+.hero-float-card.delay-1.visible { transition-delay: 0.12s; }
+.hero-float-card.delay-2.visible { transition-delay: 0.24s; }
+/* Perpetual float — spring physics, no bounce */
+.hero-float-card.visible {
+  animation: heroFloat 5s ease-in-out infinite;
+}
+.hero-float-card.delay-1.visible { animation-delay: 0.6s; }
+.hero-float-card.delay-2.visible { animation-delay: 1.2s; }
+
+@keyframes heroFloat {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-6px); }
+}
+
 .float-card-label {
   font-family: var(--mono);
   font-size: 0.68rem;
@@ -315,6 +335,10 @@ a:hover { opacity: 0.8; }
 .step {
   border-top: 1px solid var(--border);
   padding-top: 24px;
+  transition: transform var(--transition);
+}
+.step:hover {
+  transform: translateY(-3px);
 }
 .step-num {
   font-family: var(--mono);
@@ -601,6 +625,11 @@ a:hover { opacity: 0.8; }
   border-radius: var(--radius);
   overflow: hidden;
   position: relative;
+  transition: transform var(--transition), border-color var(--transition);
+}
+.bento-cell:hover {
+  transform: translateY(-2px);
+  border-color: var(--text-subtle);
 }
 .bento-main {
   grid-row: span 2;
