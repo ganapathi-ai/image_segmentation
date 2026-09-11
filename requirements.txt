@@ -1,6 +1,6 @@
 flask==2.3.3
 torch==2.9.0
-torchvision==0.20.0
+torchvision==0.24.0
 segmentation-models-pytorch==0.3.3
 albumentations==1.4.0
 opencv-python-headless==4.11.0.86
