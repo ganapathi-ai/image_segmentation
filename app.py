@@ -6,6 +6,7 @@ Routes:
   POST /api/upload-weights  → accept .pth file, store in memory
   POST /api/segment         → accept image, return segmentation results
 """
+import gc
 import os
 from flask import Flask, request, jsonify, render_template
 
@@ -131,6 +132,9 @@ def segment():
 
     except Exception as exc:
         return jsonify({"error": f"Inference failed: {exc}"}), 500
+    finally:
+        # Free per-request memory on the 512 MB free tier
+        gc.collect()
 
 
 if __name__ == "__main__":

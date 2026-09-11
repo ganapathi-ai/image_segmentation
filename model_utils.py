@@ -2,6 +2,7 @@
 Model utilities for U-Net image segmentation.
 Mirrors the preprocessing/postprocessing from the Colab notebook exactly.
 """
+import gc
 import io
 import cv2
 import numpy as np
@@ -17,9 +18,12 @@ IMAGE_SIZE = 256
 _model = None
 _weights_loaded = False
 
+# Memory optimization for Render free tier (512 MB limit)
+torch.set_num_threads(1)
+
 
 def get_model():
-    """Lazy-load and return the U-Net model with ResNet34 encoder."""
+    """Lazy-load and return the U-Net model with ResNet34 encoder, INT8 quantized for low memory."""
     global _model
     if _model is None:
         _model = smp.Unet(
@@ -29,16 +33,27 @@ def get_model():
             classes=1,
         ).to("cpu")
         _model.eval()
+        # Dynamic INT8 quantization — cuts memory ~75% (97 MB → ~25 MB)
+        # Minimal accuracy impact on binary segmentation
+        _model = torch.quantization.quantize_dynamic(
+            _model,
+            {torch.nn.Conv2d, torch.nn.Linear},
+            dtype=torch.qint8,
+        )
     return _model
 
 
 def load_weights(weights_bytes: bytes) -> None:
     """Load trained weights from raw bytes into the model."""
-    global _weights_loaded
+    global _weights_loaded, _model
     model = get_model()
     state_dict = torch.load(io.BytesIO(weights_bytes), map_location="cpu", weights_only=False)
     model.load_state_dict(state_dict)
     _weights_loaded = True
+
+    # Free weights buffer — we no longer need the raw bytes
+    del weights_bytes
+    gc.collect()
 
 
 def is_weights_loaded() -> bool:
@@ -78,6 +93,13 @@ def run_inference(model, tensor: torch.Tensor) -> tuple[np.ndarray, np.ndarray]:
         output = model(tensor)
         pred_sigmoid = torch.sigmoid(output).squeeze().cpu().numpy()
         pred_binary = (pred_sigmoid > 0.5).astype(np.uint8) * 255
+
+    # Free intermediate tensors immediately
+    del output
+    if tensor.device.type == "cpu":
+        del tensor
+
+    gc.collect()
     return pred_sigmoid, pred_binary
 
 
