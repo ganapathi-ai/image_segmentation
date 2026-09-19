@@ -1,18 +1,19 @@
 """
 Flask web server for the Image Segmentation app.
+Uses ONNX Runtime for lightweight CPU inference (~30 MB vs ~300 MB for PyTorch).
 Routes:
   GET  /            → serve the single-page frontend
   GET  /api/health  → health check
-  POST /api/upload-weights  → accept .pth file, store in memory
+  POST /api/upload-weights  → accept .onnx or .pth file
   POST /api/segment         → accept image, return segmentation results
 """
-import gc
 import os
 from flask import Flask, request, jsonify, render_template
 
 from model_utils import (
-    get_model,
+    get_session,
     load_weights,
+    load_weights_from_path,
     is_weights_loaded,
     preprocess_image,
     run_inference,
@@ -24,18 +25,60 @@ from model_utils import (
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 64 * 1024 * 1024  # 64 MB max upload
 
-# ── Auto-load weights on startup ───────────────────────────
-WEIGHTS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "weights", "final_model.pth")
-_weights_preloaded = False
+# ── Lazy-load model on first inference request ──────────────
+WEIGHTS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "weights", "final_model.onnx")
+_model_load_failed = False
 
-if os.path.exists(WEIGHTS_PATH):
+
+def _ensure_model_loaded():
+    """Load ONNX model from disk on first inference call."""
+    global _model_load_failed
+    if _model_load_failed:
+        return
+    onnx_path = WEIGHTS_PATH
+    # Fallback: if .onnx not found, check for .pth and tell user
+    if not os.path.exists(onnx_path):
+        pth_path = WEIGHTS_PATH.replace(".onnx", ".pth")
+        if os.path.exists(pth_path):
+            # Auto-convert .pth to .onnx using torch (only on startup)
+            _convert_pth_to_onnx(pth_path, onnx_path)
+        else:
+            _model_load_failed = True
+            return
     try:
-        with open(WEIGHTS_PATH, "rb") as f:
-            load_weights(f.read())
-        _weights_preloaded = True
-        print(f"Loaded weights from {WEIGHTS_PATH}")
+        load_weights_from_path(onnx_path)
+        print(f"Loaded ONNX model from {onnx_path}")
     except Exception as exc:
-        print(f"Warning: could not pre-load weights: {exc}")
+        _model_load_failed = True
+        print(f"Warning: could not load model: {exc}")
+
+
+def _convert_pth_to_onnx(pth_path: str, onnx_path: str) -> None:
+    """Convert .pth to .onnx on first deploy if .onnx not yet committed."""
+    import torch
+    import segmentation_models_pytorch as smp
+
+    print(f"Converting {pth_path} to ONNX (one-time)...")
+    model = smp.Unet(
+        encoder_name="resnet34",
+        encoder_weights=None,
+        in_channels=3,
+        classes=1,
+    ).to("cpu")
+    model.eval()
+
+    state_dict = torch.load(pth_path, map_location="cpu", weights_only=False)
+    model.load_state_dict(state_dict)
+
+    dummy = torch.randn(1, 3, 256, 256)
+    torch.onnx.export(
+        model, dummy, onnx_path,
+        input_names=["input"], output_names=["output"],
+        dynamic_axes={"input": {0: "batch", 2: "height", 3: "width"},
+                      "output": {0: "batch", 2: "height", 3: "width"}},
+        opset_version=18,
+    )
+    print(f"ONNX export complete: {onnx_path}")
 
 
 @app.route("/")
@@ -53,34 +96,56 @@ def status():
     """Return whether model weights are loaded."""
     return jsonify({
         "weights_loaded": is_weights_loaded(),
-        "weights_preloaded": _weights_preloaded,
+        "runtime": "onnxruntime",
     })
 
 
 @app.route("/api/upload-weights", methods=["POST"])
 def upload_weights():
-    """Accept a .pth file and load it into the model."""
+    """Accept a .pth or .onnx file and load it into memory."""
     if "file" not in request.files:
         return jsonify({"error": "No file provided"}), 400
 
     file = request.files["file"]
-    if file.filename == "" or not file.filename.endswith(".pth"):
-        return jsonify({"error": "Please upload a .pth file"}), 400
+    if file.filename == "":
+        return jsonify({"error": "Empty filename"}), 400
+
+    ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
+    if ext not in ("pth", "onnx"):
+        return jsonify({"error": "Please upload a .pth or .onnx file"}), 400
 
     try:
         weights_bytes = file.read()
-        load_weights(weights_bytes)
-        return jsonify({"message": "Weights loaded successfully"})
+
+        # If .onnx, save directly. If .pth, save as-is for potential conversion.
+        global _model_load_failed
+        if ext == "onnx":
+            load_weights(weights_bytes)
+            _model_load_failed = False
+            return jsonify({"message": "ONNX model loaded successfully"})
+        else:
+            # Save .pth — will be converted on first inference
+            pth_path = os.path.join(
+                os.path.dirname(os.path.abspath(__file__)), "weights", "final_model.pth"
+            )
+            os.makedirs(os.path.dirname(pth_path), exist_ok=True)
+            with open(pth_path, "wb") as f:
+                f.write(weights_bytes)
+            _model_load_failed = False
+            return jsonify({"message": "PyTorch weights saved — will convert to ONNX on first inference"})
+
     except Exception as exc:
         return jsonify({"error": f"Failed to load weights: {exc}"}), 500
 
 
 @app.route("/api/segment", methods=["POST"])
 def segment():
-    """Accept an image file, run inference, return results as base64 images + metrics."""
-    # Check weights
+    """Accept an image file, run ONNX inference, return results."""
+    # Lazy-load model on first inference request
+    _ensure_model_loaded()
+
     if not is_weights_loaded():
-        return jsonify({"error": "Model weights not loaded. Upload .pth first."}), 400
+        return jsonify({"error": "Model weights not loaded. Upload .pth or .onnx first."}), 400
 
     if "image" not in request.files:
         return jsonify({"error": "No image provided"}), 400
@@ -92,34 +157,23 @@ def segment():
     try:
         image_bytes = file.read()
 
-        # Decode original at full resolution for display
         original_rgb = decode_original_image(image_bytes)
         h_orig, w_orig = original_rgb.shape[:2]
 
-        # Preprocess for model (256×256)
         tensor = preprocess_image(image_bytes)
-
-        # Inference
-        model = get_model()
-        pred_sigmoid, pred_binary = run_inference(model, tensor)
+        session = get_session()
+        pred_sigmoid, pred_binary = run_inference(session, tensor)
 
         # Resize mask back to original image size
         pred_binary_full = cv2.resize(pred_binary, (w_orig, h_orig),
                                       interpolation=cv2.INTER_NEAREST)
-        pred_sigmoid_full = cv2.resize(pred_sigmoid, (w_orig, h_orig),
-                                       interpolation=cv2.INTER_LINEAR)
 
-        # Overlay
         overlay_rgb = mask_to_overlay(original_rgb, pred_binary_full)
 
-        # Encode results as JPEG base64
         original_b64 = encode_jpeg(original_rgb)
-        mask_b64 = encode_jpeg(
-            cv2.cvtColor(pred_binary_full, cv2.COLOR_GRAY2RGB)
-        )
+        mask_b64 = encode_jpeg(cv2.cvtColor(pred_binary_full, cv2.COLOR_GRAY2RGB))
         overlay_b64 = encode_jpeg(overlay_rgb)
 
-        # Compute pixel coverage
         coverage_pct = float(pred_binary_full.sum() / 255 / (h_orig * w_orig) * 100)
 
         return jsonify({
@@ -132,9 +186,6 @@ def segment():
 
     except Exception as exc:
         return jsonify({"error": f"Inference failed: {exc}"}), 500
-    finally:
-        # Free per-request memory on the 512 MB free tier
-        gc.collect()
 
 
 if __name__ == "__main__":

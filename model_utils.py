@@ -1,105 +1,110 @@
 """
 Model utilities for U-Net image segmentation.
-Mirrors the preprocessing/postprocessing from the Colab notebook exactly.
+Uses ONNX Runtime for lightweight CPU inference (~30 MB vs ~300 MB for PyTorch).
+Preprocessing/postprocessing mirrors the Colab notebook exactly.
 """
-import gc
 import io
 import cv2
 import numpy as np
-import torch
-import segmentation_models_pytorch as smp
+import onnxruntime as ort
 
 # ImageNet normalization (same as notebook)
 MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 IMAGE_SIZE = 256
 
-# Singleton pattern — load model once, reuse across requests
-_model = None
+# Singleton — load ONNX session once
+_session = None
 _weights_loaded = False
 
-# Memory optimization for Render free tier (512 MB limit)
-torch.set_num_threads(1)
 
-
-def get_model():
-    """Lazy-load and return the U-Net model with ResNet34 encoder, INT8 quantized for low memory."""
-    global _model
-    if _model is None:
-        _model = smp.Unet(
-            encoder_name="resnet34",
-            encoder_weights="imagenet",
-            in_channels=3,
-            classes=1,
-        ).to("cpu")
-        _model.eval()
-        # Dynamic INT8 quantization — cuts memory ~75% (97 MB → ~25 MB)
-        # Minimal accuracy impact on binary segmentation
-        _model = torch.quantization.quantize_dynamic(
-            _model,
-            {torch.nn.Conv2d, torch.nn.Linear},
-            dtype=torch.qint8,
+def get_session():
+    """Lazy-load and return the ONNX Runtime inference session."""
+    global _session
+    if _session is None:
+        model_path = _get_model_path()
+        _session = ort.InferenceSession(
+            model_path,
+            providers=["CPUExecutionProvider"],
         )
-    return _model
+    return _session
+
+
+def _get_model_path() -> str:
+    """Return path to the ONNX model file."""
+    import os
+    here = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(here, "weights", "final_model.onnx")
 
 
 def load_weights(weights_bytes: bytes) -> None:
-    """Load trained weights from raw bytes into the model."""
-    global _weights_loaded, _model
-    model = get_model()
-    state_dict = torch.load(io.BytesIO(weights_bytes), map_location="cpu", weights_only=False)
-    model.load_state_dict(state_dict)
+    """Load ONNX model from raw bytes into memory."""
+    global _weights_loaded, _session
+    path = _get_model_path()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "wb") as f:
+        f.write(weights_bytes)
+    # Force session reload on next request
+    _session = None
     _weights_loaded = True
-
-    # Free weights buffer — we no longer need the raw bytes
+    # Free the bytes buffer
     del weights_bytes
+    import gc
     gc.collect()
 
 
+def load_weights_from_path(path: str) -> None:
+    """Load ONNX model directly from a file path on disk."""
+    global _weights_loaded, _session
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"Model file not found: {path}")
+    # Validate it's a real ONNX file
+    with open(path, "rb") as f:
+        header = f.read(8)
+    if header[:4] != b"ONNX":
+        raise ValueError(f"Not a valid ONNX file: {path}")
+    _weights_loaded = True
+    _session = None  # Force reload on next get_session()
+
+
 def is_weights_loaded() -> bool:
+    global _weights_loaded
+    if not _weights_loaded:
+        # Check if model file exists on disk
+        import os
+        if os.path.exists(_get_model_path()):
+            _weights_loaded = True
     return _weights_loaded
 
 
-def preprocess_image(image_bytes: bytes) -> torch.Tensor:
+def preprocess_image(image_bytes: bytes) -> np.ndarray:
     """
     Decode image from bytes, resize to IMAGE_SIZE×IMAGE_SIZE,
-    normalize with ImageNet mean/std, return (1, 3, H, W) float tensor.
+    normalize with ImageNet mean/std, return (1, 3, H, W) float32 array.
     """
-    # Decode image
     img_arr = np.frombuffer(image_bytes, dtype=np.uint8)
     img = cv2.imdecode(img_arr, cv2.IMREAD_COLOR)
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
-    # Resize
     img = cv2.resize(img, (IMAGE_SIZE, IMAGE_SIZE), interpolation=cv2.INTER_LINEAR)
-
-    # Normalize
     img = img.astype(np.float32) / 255.0
     img = (img - MEAN) / STD
 
     # HWC -> CHW -> (1, C, H, W)
     img = np.transpose(img, (2, 0, 1))
-    tensor = torch.from_numpy(img).unsqueeze(0).float()
-    return tensor
+    return img[np.newaxis, ...].astype(np.float32)
 
 
-def run_inference(model, tensor: torch.Tensor) -> tuple[np.ndarray, np.ndarray]:
+def run_inference(session, tensor: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """
     Run forward pass and return:
       - pred_sigmoid: float mask in [0, 1], shape (H, W)
       - pred_binary:  uint8 binary mask {0, 255}, shape (H, W)
     """
-    with torch.no_grad():
-        output = model(tensor)
-        pred_sigmoid = torch.sigmoid(output).squeeze().cpu().numpy()
-        pred_binary = (pred_sigmoid > 0.5).astype(np.uint8) * 255
-
-    # Free intermediate tensors immediately
-    del output
-    if tensor.device.type == "cpu":
-        del tensor
-
-    gc.collect()
+    output = session.run(None, {"input": tensor})[0]
+    logits = output[0, 0]  # (H, W) — raw logits
+    pred_sigmoid = 1.0 / (1.0 + np.exp(-logits))  # sigmoid
+    pred_binary = (pred_sigmoid > 0.5).astype(np.uint8) * 255
     return pred_sigmoid, pred_binary
 
 
@@ -114,15 +119,8 @@ def mask_to_overlay(original_rgb: np.ndarray, mask_255: np.ndarray,
     return overlay
 
 
-def encode_png(img_bgr_or_rgb: np.ndarray) -> str:
-    """Encode an RGB or BGR numpy array as a base64 PNG string."""
-    _, buf = cv2.imencode(".png", cv2.cvtColor(img_bgr_or_rgb, cv2.COLOR_RGB2BGR))
-    import base64
-    return base64.b64encode(buf).decode("utf-8")
-
-
 def encode_jpeg(img_rgb: np.ndarray, quality: int = 90) -> str:
-    """Encode an RGB numpy array as a base64 JPEG string (smaller than PNG)."""
+    """Encode an RGB numpy array as a base64 JPEG string."""
     _, buf = cv2.imencode(".jpg", cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR),
                           [int(cv2.IMWRITE_JPEG_QUALITY), quality])
     import base64
