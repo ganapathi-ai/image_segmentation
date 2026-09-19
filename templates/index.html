@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Segment — U-Net Image Segmentation</title>
+  <title>Diabetic Ulcer Segmentation — U-Net · ResNet34</title>
   <link rel="preconnect" href="https://cdn.jsdelivr.net" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/geist@1.3.0/dist/fonts/geist-sans/style.min.css" />
   <link rel="stylesheet" href="/static/style.css" />
@@ -32,12 +32,12 @@
     <section class="hero">
       <div class="container hero-inner">
         <div class="hero-copy">
-          <p class="hero-eyebrow">Binary Image Segmentation</p>
+          <p class="hero-eyebrow">Diabetic Ulcer Segmentation</p>
           <h1 class="hero-headline">
-            Segment any<br />
-            <span class="hero-headline-accent">image instantly</span>
+            Diabetic ulcer<br />
+            <span class="hero-headline-accent">segmentation</span>
           </h1>
-          <p class="hero-sub">U-Net architecture with ResNet34 encoder. 256×256 inference, ~76% IoU, ~86% F1. Runs entirely in your browser via our API.</p>
+          <p class="hero-sub">Diabetic ulcer segmentation. U-Net architecture with ResNet34 encoder. 256×256 inference, ~76% IoU, ~86% F1. Runs on our server via API.</p>
           <div class="hero-ctas">
             <a href="#workflow" class="btn-primary">Try it now</a>
             <a href="https://github.com/ganapathi-ai/image_segmentation" target="_blank" rel="noopener" class="btn-ghost">View on GitHub</a>
@@ -85,7 +85,7 @@
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
             </div>
             <h3 class="step-title">Upload weights</h3>
-            <p class="step-desc">Load your <code>.pth</code> file trained with the U-Net + ResNet34 pipeline. Stored in memory for the session.</p>
+            <p class="step-desc">Load your <code>.onnx</code> file trained with the U-Net + ResNet34 pipeline. Stored in memory for the session.</p>
           </div>
           <div class="step">
             <span class="step-num">02</span>
@@ -118,13 +118,13 @@
               <span class="step-num">01</span>
               <h3>Load model weights</h3>
             </div>
-            <p class="app-block-desc">Upload your trained <code>.pth</code> — U-Net with ResNet34 encoder. Stays in memory for this session only.</p>
+            <p class="app-block-desc">Upload your trained <code>.onnx</code> — U-Net with ResNet34 encoder. Stays in memory for this session only.</p>
             <div id="weights-drop" class="dropzone">
               <div class="dropzone-inner">
                 <svg class="drop-icon" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                <span class="drop-text">Drop your <code>.pth</code> file here</span>
-                <span class="drop-hint">or click to browse — ~98 MB</span>
-                <input type="file" id="weights-input" accept=".pth" hidden />
+                <span class="drop-text">Drop your <code>.onnx</code> file here</span>
+                <span class="drop-hint">or click to browse — ~47 MB</span>
+                <input type="file" id="weights-input" accept=".onnx" hidden />
               </div>
             </div>
             <div id="weights-status" class="status-msg"></div>
@@ -200,7 +200,7 @@
           </div>
           <div class="bento-cell bento-tall">
             <div class="bento-cell-label">Prediction mask</div>
-            <img id="res-mask" alt="Binary mask" class="bento-img" />
+            <img id="res-mask" alt="Segmentation mask" class="bento-img" />
           </div>
           <div class="bento-cell bento-wide">
             <div class="bento-cell-label">Overlay</div>
@@ -223,7 +223,7 @@
 
   <footer class="footer">
     <div class="container footer-inner">
-      <span>U-Net · ResNet34 · PyTorch</span>
+      <span>U-Net · ResNet34 · ONNX Runtime</span>
       <span class="footer-sep">·</span>
       <a href="https://github.com/ganapathi-ai/image_segmentation" target="_blank" rel="noopener">GitHub</a>
       <span class="footer-sep">·</span>

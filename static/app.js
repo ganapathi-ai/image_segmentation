@@ -1,4 +1,5 @@
-/* app.js — Segment, U-Net Image Segmentation
+/* app.js — Diabetic Ulcer Segmentation
+   U-Net + ResNet34 · ONNX Runtime inference
    Design: Impeccable + Taste-Skill principles
    — Spring physics (ease-out expo), no bounce
    — Scroll reveals via IntersectionObserver
