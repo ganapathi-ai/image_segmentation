@@ -35,50 +35,15 @@ def _ensure_model_loaded():
     global _model_load_failed
     if _model_load_failed:
         return
-    onnx_path = WEIGHTS_PATH
-    # Fallback: if .onnx not found, check for .pth and tell user
-    if not os.path.exists(onnx_path):
-        pth_path = WEIGHTS_PATH.replace(".onnx", ".pth")
-        if os.path.exists(pth_path):
-            # Auto-convert .pth to .onnx using torch (only on startup)
-            _convert_pth_to_onnx(pth_path, onnx_path)
-        else:
-            _model_load_failed = True
-            return
+    if not os.path.exists(WEIGHTS_PATH):
+        _model_load_failed = True
+        return
     try:
-        load_weights_from_path(onnx_path)
-        print(f"Loaded ONNX model from {onnx_path}")
+        load_weights_from_path(WEIGHTS_PATH)
+        print(f"Loaded ONNX model from {WEIGHTS_PATH}")
     except Exception as exc:
         _model_load_failed = True
         print(f"Warning: could not load model: {exc}")
-
-
-def _convert_pth_to_onnx(pth_path: str, onnx_path: str) -> None:
-    """Convert .pth to .onnx on first deploy if .onnx not yet committed."""
-    import torch
-    import segmentation_models_pytorch as smp
-
-    print(f"Converting {pth_path} to ONNX (one-time)...")
-    model = smp.Unet(
-        encoder_name="resnet34",
-        encoder_weights=None,
-        in_channels=3,
-        classes=1,
-    ).to("cpu")
-    model.eval()
-
-    state_dict = torch.load(pth_path, map_location="cpu", weights_only=False)
-    model.load_state_dict(state_dict)
-
-    dummy = torch.randn(1, 3, 256, 256)
-    torch.onnx.export(
-        model, dummy, onnx_path,
-        input_names=["input"], output_names=["output"],
-        dynamic_axes={"input": {0: "batch", 2: "height", 3: "width"},
-                      "output": {0: "batch", 2: "height", 3: "width"}},
-        opset_version=18,
-    )
-    print(f"ONNX export complete: {onnx_path}")
 
 
 @app.route("/")
@@ -102,7 +67,7 @@ def status():
 
 @app.route("/api/upload-weights", methods=["POST"])
 def upload_weights():
-    """Accept a .pth or .onnx file and load it into memory."""
+    """Accept an .onnx file and load it into memory."""
     if "file" not in request.files:
         return jsonify({"error": "No file provided"}), 400
 
@@ -111,29 +76,15 @@ def upload_weights():
         return jsonify({"error": "Empty filename"}), 400
 
     ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
-    if ext not in ("pth", "onnx"):
-        return jsonify({"error": "Please upload a .pth or .onnx file"}), 400
+    if ext != "onnx":
+        return jsonify({"error": "Please upload an .onnx file (exported from export_onnx.py)"}), 400
 
     try:
         weights_bytes = file.read()
-
-        # If .onnx, save directly. If .pth, save as-is for potential conversion.
         global _model_load_failed
-        if ext == "onnx":
-            load_weights(weights_bytes)
-            _model_load_failed = False
-            return jsonify({"message": "ONNX model loaded successfully"})
-        else:
-            # Save .pth — will be converted on first inference
-            pth_path = os.path.join(
-                os.path.dirname(os.path.abspath(__file__)), "weights", "final_model.pth"
-            )
-            os.makedirs(os.path.dirname(pth_path), exist_ok=True)
-            with open(pth_path, "wb") as f:
-                f.write(weights_bytes)
-            _model_load_failed = False
-            return jsonify({"message": "PyTorch weights saved — will convert to ONNX on first inference"})
-
+        load_weights(weights_bytes)
+        _model_load_failed = False
+        return jsonify({"message": "ONNX model loaded successfully"})
     except Exception as exc:
         return jsonify({"error": f"Failed to load weights: {exc}"}), 500
 

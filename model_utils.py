@@ -92,7 +92,7 @@ def preprocess_image(image_bytes: bytes) -> np.ndarray:
 
     # HWC -> CHW -> (1, C, H, W)
     img = np.transpose(img, (2, 0, 1))
-    return img[np.newaxis, ...].astype(np.float32)
+    return img[np.newaxis, ...].astype(np.float16)
 
 
 def run_inference(session, tensor: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
