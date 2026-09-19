@@ -1,13 +1,9 @@
 """
 Flask web server for the Image Segmentation app.
 Uses ONNX Runtime for lightweight CPU inference (~30 MB vs ~300 MB for PyTorch).
-Routes:
-  GET  /            → serve the single-page frontend
-  GET  /api/health  → health check
-  POST /api/upload-weights  → accept .onnx or .pth file
-  POST /api/segment         → accept image, return segmentation results
 """
 import os
+import cv2
 from flask import Flask, request, jsonify, render_template
 
 from model_utils import (
