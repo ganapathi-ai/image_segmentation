@@ -243,6 +243,23 @@ code, .mono {
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s;
   margin: 0 4px;
+  position: relative;
+}
+
+/* Invisible file input overlays entire dropzone — clicking anywhere opens picker */
+.upload-zone input[type="file"] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+  z-index: 2;
+}
+
+/* Content sits below the input */
+.upload-zone-content {
+  position: relative;
+  z-index: 1;
+  pointer-events: none;
 }
 
 .upload-zone:hover,
@@ -254,6 +271,10 @@ code, .mono {
 .upload-zone.locked {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+.upload-zone.locked input[type="file"] {
+  pointer-events: none;
 }
 
 .upload-zone.locked:hover {
@@ -280,9 +301,6 @@ code, .mono {
   color: var(--text-inverse-secondary);
 }
 
-.upload-zone input[type="file"] {
-  display: none;
-}
 .sidebar-preview {
   margin: 8px 4px 0;
   padding: 8px;
