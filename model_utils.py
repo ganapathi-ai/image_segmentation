@@ -3,6 +3,7 @@ Model utilities for U-Net image segmentation.
 Uses ONNX Runtime for lightweight CPU inference (~30 MB vs ~300 MB for PyTorch).
 Preprocessing/postprocessing mirrors the Colab notebook exactly.
 """
+import os
 import io
 import cv2
 import numpy as np
@@ -58,11 +59,7 @@ def load_weights_from_path(path: str) -> None:
     global _weights_loaded, _session
     if not os.path.exists(path):
         raise FileNotFoundError(f"Model file not found: {path}")
-    # Validate it's a real ONNX file
-    with open(path, "rb") as f:
-        header = f.read(8)
-    if header[:4] != b"ONNX":
-        raise ValueError(f"Not a valid ONNX file: {path}")
+    # Let onnxruntime validate the file when loading
     _weights_loaded = True
     _session = None  # Force reload on next get_session()
 
