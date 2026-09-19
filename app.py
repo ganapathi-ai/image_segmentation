@@ -5,6 +5,7 @@ Uses ONNX Runtime for lightweight CPU inference (~30 MB vs ~300 MB for PyTorch).
 import os
 import cv2
 from flask import Flask, request, jsonify, render_template
+from flask_cors import CORS
 
 from model_utils import (
     get_session,
@@ -19,6 +20,7 @@ from model_utils import (
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 64 * 1024 * 1024  # 64 MB max upload
+CORS(app)  # Allow same-origin and cross-origin requests
 
 # ── Load model at startup from repo weights ─────────────────
 WEIGHTS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "weights", "final_model.onnx")

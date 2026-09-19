@@ -66,8 +66,9 @@ async function boot() {
 
 // ── Image Upload ───────────────────────────────────────────
 setupDropzone("image-drop", "image-input", (file) => {
+  console.log('[DFU] File dropped:', file.name, file.type, file.size);
   if (!file.type.startsWith("image/")) {
-    log("Unsupported file type.", "warn");
+    log("Unsupported file type: " + file.type, "warn");
     return;
   }
 
@@ -76,14 +77,14 @@ setupDropzone("image-drop", "image-input", (file) => {
   previewImg.src = url;
 
   $("image-name").textContent = file.name;
-  $("image-size").textContent = `${(file.size / 1024).toFixed(1)} KB · ${file.type.split("/")[1].toUpperCase()}`;
+  $("image-size").textContent = `${(file.size / 1024).toFixed(1)} KB · ${(file.type.split("/")[1] || "file").toUpperCase()}`;
   $("image-preview").classList.add("visible");
 
   // Enable the run button
   $("segment-btn").disabled = false;
   $("segment-btn")._imageFile = file;
 
-  log(`Image loaded: ${file.name}`);
+  log(`Image loaded: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`);
 });
 
 $("clear-image")?.addEventListener("click", () => {
