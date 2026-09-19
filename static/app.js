@@ -3,26 +3,22 @@
    */
 
 let modelReady = false;
+let selectedFile = null;
 
 const $  = (id) => document.getElementById(id);
-const $$ = (sel) => document.querySelectorAll(sel);
 
-function setStatus(dotEl, textEl, state, label) {
-  dotEl.className = "status-dot " + state;
-  textEl.textContent = label;
-}
-
-function log(msg, type = "") {
+function log(msg, type) {
   const bar = $("log-bar");
   const time = new Date().toLocaleTimeString("en-US", { hour12: false });
   const line = document.createElement("div");
   line.className = "log-line";
-  line.innerHTML = `<span class="log-time">${time}</span><span class="log-msg ${type}">${msg}</span>`;
+  const cls = type ? " log-msg-" + type : "";
+  line.innerHTML = `<span class="log-time">${time}</span><span class="log-msg${cls}">${msg}</span>`;
   bar.appendChild(line);
   bar.scrollTop = bar.scrollHeight;
 }
 
-// ── Boot: check model status ───────────────────────────────
+// ── Boot ───────────────────────────────────────────────────
 async function boot() {
   const dot = $("status-dot");
   const txt = $("status-text");
@@ -37,96 +33,99 @@ async function boot() {
       log("Model loaded — ready for inference.", "success");
     } else {
       setStatus(dot, txt, "error", "Model unavailable");
-      log("Model weights not loaded on server.", "error");
+      log("Model not loaded on server.", "error");
     }
   } catch (err) {
     setStatus(dot, txt, "", "Checking…");
-    log("Status check error: " + err.message, "warn");
+    log("Status error: " + err.message, "warn");
   }
 }
 
-// ── File input handler ─────────────────────────────────────
-function handleFile(file) {
-  console.log("[DFU] handleFile:", file?.name, file?.type, file?.size);
-  if (!file) {
-    log("No file selected.", "warn");
-    return;
+function setStatus(dot, txt, state, label) {
+  dot.className = "status-dot " + (state || "");
+  txt.textContent = label;
+}
+
+// ── File Input ─────────────────────────────────────────────
+const imageInput = $("image-input");
+const imageDrop  = $("image-drop");
+const segmentBtn = $("segment-btn");
+
+// Click the drop zone opens file picker
+imageDrop.addEventListener("click", function(e) {
+  e.preventDefault();
+  console.log("[DFU] dropzone clicked, opening file picker");
+  imageInput.click();
+});
+
+// File picker changed
+imageInput.addEventListener("change", function() {
+  console.log("[DFU] file input changed, files:", this.files.length);
+  if (this.files && this.files[0]) {
+    onFileSelected(this.files[0]);
   }
+});
+
+// Drag and drop
+imageDrop.addEventListener("dragover", function(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  this.classList.add("drag-over");
+});
+
+imageDrop.addEventListener("dragleave", function(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  this.classList.remove("drag-over");
+});
+
+imageDrop.addEventListener("drop", function(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  this.classList.remove("drag-over");
+  console.log("[DFU] drop event, files:", e.dataTransfer.files.length);
+  if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+    onFileSelected(e.dataTransfer.files[0]);
+  }
+});
+
+// ── File Selected ──────────────────────────────────────────
+function onFileSelected(file) {
+  console.log("[DFU] onFileSelected:", file.name, file.type, file.size);
+
   if (!file.type.startsWith("image/")) {
-    log("Unsupported type: " + file.type, "warn");
+    log("Not an image file: " + file.type, "warn");
     return;
   }
+
+  selectedFile = file;
 
   // Show preview
   const url = URL.createObjectURL(file);
   $("preview-img").src = url;
   $("image-name").textContent = file.name;
-  $("image-size").textContent = `${(file.size / 1024).toFixed(1)} KB`;
+  $("image-size").textContent = formatSize(file.size);
   $("image-preview").classList.add("visible");
 
-  // Store file and enable button
-  $("segment-btn")._imageFile = file;
-  $("segment-btn").disabled = false;
+  // Enable Run button
+  segmentBtn.disabled = false;
 
-  log(`Loaded: ${file.name}`);
+  log("Image loaded: " + file.name + " (" + formatSize(file.size) + ")");
 }
 
-// ── Wire up upload zone ────────────────────────────────────
-const imageInput = $("image-input");
-const imageDrop  = $("image-drop");
+function formatSize(bytes) {
+  if (bytes < 1024) return bytes + " B";
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+  return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+}
 
-// Click zone → open file picker
-imageDrop.addEventListener("click", (e) => {
-  e.preventDefault();
-  console.log("[DFU] Dropzone clicked");
-  imageInput.click();
-});
-
-imageDrop.addEventListener("keydown", (e) => {
-  if (e.key === "Enter" || e.key === " ") {
-    e.preventDefault();
-    imageInput.click();
-  }
-});
-
-// File selected via picker
-imageInput.addEventListener("change", () => {
-  console.log("[DFU] Input changed:", imageInput.files?.[0]?.name);
-  if (imageInput.files?.[0]) {
-    handleFile(imageInput.files[0]);
-  }
-});
-
-// Drag and drop
-imageDrop.addEventListener("dragover", (e) => {
-  e.preventDefault();
-  e.stopPropagation();
-  imageDrop.classList.add("drag-over");
-});
-
-imageDrop.addEventListener("dragleave", (e) => {
-  e.preventDefault();
-  e.stopPropagation();
-  imageDrop.classList.remove("drag-over");
-});
-
-imageDrop.addEventListener("drop", (e) => {
-  e.preventDefault();
-  e.stopPropagation();
-  imageDrop.classList.remove("drag-over");
-  console.log("[DFU] Files dropped:", e.dataTransfer.files?.length);
-  const file = e.dataTransfer.files?.[0];
-  if (file) handleFile(file);
-});
-
-// ── Clear image ────────────────────────────────────────────
-$("clear-image")?.addEventListener("click", () => {
+// ── Clear Image ────────────────────────────────────────────
+$("clear-image").addEventListener("click", function() {
   $("image-preview").classList.remove("visible");
   imageInput.value = "";
-  $("segment-btn")._imageFile = null;
-  $("segment-btn").disabled = true;
+  selectedFile = null;
+  segmentBtn.disabled = true;
 
-  // Hide results
   $("viewport-grid").style.display = "none";
   $("viewport-empty").style.display = "";
   $("metrics-bar").style.display = "none";
@@ -134,57 +133,63 @@ $("clear-image")?.addEventListener("click", () => {
 });
 
 // ── Run Inference ──────────────────────────────────────────
-$("segment-btn").addEventListener("click", async () => {
-  const btn  = $("segment-btn");
-  const file = btn._imageFile;
-
-  if (!file) {
-    log("No image file attached to button.", "warn");
+segmentBtn.addEventListener("click", async function() {
+  if (!selectedFile) {
+    log("No image selected.", "warn");
     return;
   }
   if (!modelReady) {
-    log("Model not ready yet. Please wait.", "warn");
+    log("Model not ready. Please wait.", "warn");
     return;
   }
 
-  btn.disabled = true;
+  segmentBtn.disabled = true;
+  segmentBtn.textContent = "Running…";
 
-  // Show loading state
-  const viewportLoading = $("viewport-loading");
-  viewportLoading.classList.remove("hidden");
+  // Show loading
+  $("viewport-loading").classList.remove("hidden");
   $("viewport-grid").style.display = "none";
   $("viewport-empty").style.display = "none";
-  $("sidebar-loading").style.display = "block";
 
-  const startTime = performance.now();
-  log("Running inference…");
+  const t0 = performance.now();
+  log("Running inference on " + selectedFile.name + "…");
 
   try {
     const form = new FormData();
-    form.append("image", file);
+    form.append("image", selectedFile);
 
-    log(`Sending ${file.name} (${(file.size / 1024).toFixed(1)} KB) to /api/segment`);
+    log("Uploading image to server…");
 
-    const res  = await fetch("/api/segment", {
+    const res = await fetch("/api/segment", {
       method: "POST",
       body: form,
     });
 
-    console.log("[DFU] Response status:", res.status);
-    const data = await res.json();
+    console.log("[DFU] Response:", res.status, res.statusText);
+    log("Server responded: " + res.status, res.ok ? "success" : "");
 
     if (!res.ok) {
-      log("Error: " + (data.error || "Server error"), "error");
-      console.error("[DFU] Error response:", data);
+      let errMsg = "Server error " + res.status;
+      try {
+        const errData = await res.json();
+        errMsg = errData.error || errMsg;
+      } catch {}
+      log("Error: " + errMsg, "error");
+      resetUI();
       return;
     }
 
-    const elapsed = ((performance.now() - startTime) / 1000).toFixed(1);
+    const data = await res.json();
+    console.log("[DFU] Result keys:", Object.keys(data));
+    log("Processing results…", "success");
 
-    // Display results
+    const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
+
+    // Show results
     $("res-original").src = "data:image/jpeg;base64," + data.original;
     $("res-overlay").src  = "data:image/jpeg;base64," + data.overlay;
 
+    // Download links
     $("dl-overlay").href = "data:image/png;base64," + data.overlay;
     $("dl-mask").href    = "data:image/png;base64," + data.mask;
 
@@ -193,39 +198,42 @@ $("segment-btn").addEventListener("click", async () => {
     $("metric-coverage").textContent = coverage.toFixed(1) + "%";
     $("metric-coverage").classList.remove("pending");
 
-    const totalPixels = data.image_size.width * data.image_size.height;
-    const fgPixels = Math.round(totalPixels * coverage / 100);
-    $("metric-pixels").textContent = new Intl.NumberFormat().format(fgPixels);
+    const totalPx = data.image_size.width * data.image_size.height;
+    const fgPx = Math.round(totalPx * coverage / 100);
+    $("metric-pixels").textContent = fgPx.toLocaleString();
     $("metric-pixels").classList.remove("pending");
 
-    $("metric-size").textContent = `${data.image_size.width}×${data.image_size.height}`;
+    $("metric-size").textContent = data.image_size.width + "×" + data.image_size.height;
     $("metric-size").classList.remove("pending");
 
     $("metric-time").textContent = elapsed + "s";
     $("metric-time").classList.remove("pending");
 
-    // Show results
+    // Reveal results
     $("metrics-bar").style.display = "flex";
     $("actions-bar").style.display = "flex";
-    viewportLoading.classList.add("hidden");
+    $("viewport-loading").classList.add("hidden");
     $("viewport-grid").style.display = "grid";
-    $("sidebar-loading").style.display = "none";
 
-    log(`Done: ${elapsed}s · ${coverage.toFixed(1)}% coverage · ${new Intl.NumberFormat().format(fgPixels)} px`, "success");
+    log("Done: " + elapsed + "s · " + coverage.toFixed(1) + "% coverage · " + fgPx.toLocaleString() + " px", "success");
 
   } catch (err) {
-    log("Network error: " + err.message, "error");
-    console.error("[DFU] Fetch error:", err);
-    viewportLoading.classList.add("hidden");
-    $("viewport-empty").style.display = "";
-    $("sidebar-loading").style.display = "none";
+    console.error("[DFU] Error:", err);
+    log("Error: " + err.message, "error");
+    resetUI();
   } finally {
-    btn.disabled = false;
+    segmentBtn.disabled = false;
+    segmentBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Run Inference';
   }
 });
 
+function resetUI() {
+  $("viewport-loading").classList.add("hidden");
+  $("viewport-empty").style.display = "";
+}
+
 // ── Boot ───────────────────────────────────────────────────
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", function() {
   boot();
   log("Session initialized.");
 });
