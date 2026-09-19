@@ -4,7 +4,7 @@
    */
 
 // ── State ──────────────────────────────────────────────────
-let weightsLoaded = false;
+let modelReady = false;
 
 // ── Helpers ────────────────────────────────────────────────
 const $  = (id) => document.getElementById(id);
@@ -48,69 +48,27 @@ function setupDropzone(dropId, inputId, onFile) {
 
 // ── Boot ───────────────────────────────────────────────────
 async function boot() {
-  const dot  = $("status-dot");
-  const txt  = $("status-text");
+  const dot = $("status-dot");
+  const txt = $("status-text");
 
   try {
     const res = await fetch("/api/status");
     const data = await res.json();
     if (data.weights_loaded) {
-      weightsLoaded = true;
+      modelReady = true;
       setStatus(dot, txt, "ready", "Model ready");
-      enableImageUpload();
-      log("Model weights pre-loaded from server.", "success");
+      log("Model loaded — ready for inference.", "success");
     } else {
-      setStatus(dot, txt, "", "Awaiting weights");
+      setStatus(dot, txt, "error", "Model unavailable");
+      log("Model weights not loaded on server.", "error");
     }
   } catch {
     setStatus(dot, txt, "", "Checking…");
   }
 }
 
-function enableImageUpload() {
-  const zone = $("image-drop");
-  zone.classList.remove("locked");
-}
-
-// ── Step 1: Weights Upload ─────────────────────────────────
-setupDropzone("weights-drop", "weights-input", async (file) => {
-  const statusEl = $("weights-status");
-
-  try {
-    statusEl.textContent = "Loading…";
-    statusEl.style.color = "var(--accent-amber)";
-
-    const form = new FormData();
-    form.append("file", file);
-
-    const res  = await fetch("/api/upload-weights", { method: "POST", body: form });
-    const data = await res.json();
-
-    if (!res.ok) {
-      statusEl.textContent = data.error || "Upload failed";
-      statusEl.style.color = "var(--accent)";
-      log("Weights upload failed: " + (data.error || "unknown"), "error");
-      return;
-    }
-
-    weightsLoaded = true;
-    statusEl.textContent = "Loaded — " + file.name;
-    statusEl.style.color = "var(--accent-green)";
-    setStatus($("status-dot"), $("status-text"), "ready", "Model ready");
-
-    // Unlock image upload
-    enableImageUpload();
-    log(`Weights loaded: ${file.name} (${(file.size / 1024 / 1024).toFixed(1)} MB)`, "success");
-
-  } catch (err) {
-    statusEl.textContent = "Network error";
-    statusEl.style.color = "var(--accent)";
-    log("Upload error: " + err.message, "error");
-  }
-});
-
-// ── Step 2: Image Upload ───────────────────────────────────
-setupDropzone("image-drop", "image-input", (file) => {
+// ── Image Upload + Auto Inference ──────────────────────────
+setupDropzone("image-drop", "image-input", async (file) => {
   if (!file.type.startsWith("image/")) {
     log("Unsupported file type.", "warn");
     return;
@@ -122,41 +80,34 @@ setupDropzone("image-drop", "image-input", (file) => {
 
   $("image-name").textContent = file.name;
   $("image-size").textContent = `${(file.size / 1024).toFixed(1)} KB · ${file.type.split("/")[1].toUpperCase()}`;
+  $("image-preview").classList.add("visible");
 
-  const previewRow = $("image-preview");
-  previewRow.classList.add("visible");
+  log(`Image loaded: ${file.name}`);
 
-  // Enable segment button
-  $("segment-btn").disabled = false;
-  $("segment-btn")._imageFile = file;
+  if (!modelReady) {
+    log("Model not ready — cannot run inference.", "error");
+    return;
+  }
 
-  log(`Image loaded: ${file.name}`, "success");
+  // Auto-run inference
+  await runInference(file);
 });
 
 $("clear-image")?.addEventListener("click", () => {
   $("image-preview").classList.remove("visible");
   $("image-input").value = "";
-  $("segment-btn")._imageFile = null;
-  $("segment-btn").disabled = true;
+  $("viewport-grid").style.display = "none";
+  $("viewport-empty").style.display = "";
+  $("metrics-bar").style.display = "none";
+  $("actions-bar").style.display = "none";
 });
 
-// ── Step 3: Run Segmentation ───────────────────────────────
-$("segment-btn").addEventListener("click", async () => {
-  const btn  = $("segment-btn");
-  const file = btn._imageFile;
-  if (!file) return;
-
-  btn.disabled = true;
-  btn.classList.add("loading");
-
-  // Show viewport loading
+// ── Inference ──────────────────────────────────────────────
+async function runInference(file) {
   const viewportLoading = $("viewport-loading");
   viewportLoading.classList.remove("hidden");
   $("viewport-grid").style.display = "none";
   $("viewport-empty").style.display = "none";
-
-  // Show sidebar loading
-  $("sidebar-loading").style.display = "block";
 
   const startTime = performance.now();
   log("Running inference…");
@@ -170,6 +121,8 @@ $("segment-btn").addEventListener("click", async () => {
 
     if (!res.ok) {
       log("Inference failed: " + (data.error || "unknown"), "error");
+      viewportLoading.classList.add("hidden");
+      $("viewport-empty").style.display = "";
       return;
     }
 
@@ -187,8 +140,10 @@ $("segment-btn").addEventListener("click", async () => {
     $("metric-coverage").textContent = coverage.toFixed(1) + "%";
     $("metric-coverage").classList.remove("pending");
 
-    const pixels = Math.round(data.mask.length * 0.75 * coverage / 100); // rough estimate
-    $("metric-pixels").textContent = new Intl.NumberFormat().format(pixels);
+    const maskBytes = data.mask.length;
+    const totalPixels = data.image_size.width * data.image_size.height;
+    const fgPixels = Math.round(totalPixels * coverage / 100);
+    $("metric-pixels").textContent = new Intl.NumberFormat().format(fgPixels);
     $("metric-pixels").classList.remove("pending");
 
     $("metric-size").textContent = `${data.image_size.width}×${data.image_size.height}`;
@@ -200,29 +155,20 @@ $("segment-btn").addEventListener("click", async () => {
     // Show results
     $("metrics-bar").style.display = "flex";
     $("actions-bar").style.display = "flex";
-    $("viewport-loading").classList.add("hidden");
+    viewportLoading.classList.add("hidden");
     $("viewport-grid").style.display = "grid";
-    $("sidebar-loading").style.display = "none";
 
-    // Complete progress bar
-    $("inference-fill").style.width = "100%";
-    $("inference-pct").textContent = "100";
-
-    log(`Inference complete: ${elapsed}s · ${coverage.toFixed(1)}% coverage`, "success");
+    log(`Complete: ${elapsed}s · ${coverage.toFixed(1)}% coverage · ${new Intl.NumberFormat().format(fgPixels)} px`, "success");
 
   } catch (err) {
     log("Network error: " + err.message, "error");
     viewportLoading.classList.add("hidden");
     $("viewport-empty").style.display = "";
-    $("sidebar-loading").style.display = "none";
-  } finally {
-    btn.disabled = false;
-    btn.classList.remove("loading");
   }
-});
+}
 
 // ── Boot ───────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
   boot();
-  log("Session initialized. Upload weights to begin.");
+  log("Session initialized.");
 });

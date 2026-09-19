@@ -37,7 +37,7 @@
   <!-- ── Body: Sidebar + Viewport ─────────────────────── -->
   <div class="app-body">
 
-    <!-- Sidebar: Upload Controls -->
+    <!-- Sidebar -->
     <aside class="sidebar">
 
       <div class="sidebar-section">
@@ -57,7 +57,7 @@
           </div>
           <div class="model-info-item">
             <div class="model-info-label">Runtime</div>
-            <div class="model-info-value">ONNX</div>
+            <div class="model-info-value">ONNX FP16</div>
           </div>
         </div>
       </div>
@@ -65,28 +65,13 @@
       <div class="sidebar-divider"></div>
 
       <div class="sidebar-section">
-        <div class="sidebar-section-title">Step 1 — Load Weights</div>
-        <div id="weights-drop" class="upload-zone" role="button" tabindex="0" aria-label="Upload ONNX weights file">
-          <div class="upload-zone-icon">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-          </div>
-          <div class="upload-zone-text">Drop .onnx file</div>
-          <div class="upload-zone-hint">~47 MB · FP16 weights</div>
-          <input type="file" id="weights-input" accept=".onnx" hidden />
-        </div>
-        <div id="weights-status" style="margin-top: 8px; padding: 0 4px; font-size: 11px; font-family: var(--font-mono); color: var(--text-inverse-secondary);"></div>
-      </div>
-
-      <div class="sidebar-divider"></div>
-
-      <div class="sidebar-section">
-        <div class="sidebar-section-title">Step 2 — Input Image</div>
-        <div id="image-drop" class="upload-zone locked" role="button" tabindex="0" aria-label="Upload input image">
+        <div class="sidebar-section-title">Input — Upload Image</div>
+        <div id="image-drop" class="upload-zone" role="button" tabindex="0" aria-label="Upload foot ulcer image">
           <div class="upload-zone-icon">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
           </div>
-          <div class="upload-zone-text">Drop image</div>
-          <div class="upload-zone-hint">PNG, JPG, WebP</div>
+          <div class="upload-zone-text">Drop foot ulcer image</div>
+          <div class="upload-zone-hint">PNG, JPG, WebP — inference runs automatically</div>
           <input type="file" id="image-input" accept="image/*" hidden />
         </div>
         <div id="image-preview" class="sidebar-preview">
@@ -97,22 +82,6 @@
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             </button>
           </div>
-        </div>
-      </div>
-
-      <div class="sidebar-divider"></div>
-
-      <div class="sidebar-section">
-        <div class="sidebar-section-title">Step 3 — Inference</div>
-        <button id="segment-btn" class="btn-segment" disabled>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-          Run Segmentation
-        </button>
-        <div id="sidebar-loading" style="display:none; margin-top: 10px; padding: 0 4px;">
-          <div style="height: 3px; background: var(--border-dark); border-radius: 2px; overflow: hidden;">
-            <div id="inference-fill" style="height: 100%; width: 0%; background: var(--accent-amber); transition: width 0.3s;"></div>
-          </div>
-          <div style="font-size: 10px; color: var(--text-inverse-secondary); margin-top: 6px; font-family: var(--font-mono);">Inference… <span id="inference-pct">0</span>%</div>
         </div>
       </div>
 
@@ -128,7 +97,7 @@
             <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
           </div>
           <div class="viewport-empty-text">No image loaded</div>
-          <div class="viewport-empty-sub">Upload weights, then drop an image to begin</div>
+          <div class="viewport-empty-sub">Drop a foot ulcer image to begin segmentation</div>
         </div>
 
         <div class="viewport-grid" id="viewport-grid" style="display:none;">

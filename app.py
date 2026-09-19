@@ -8,7 +8,6 @@ from flask import Flask, request, jsonify, render_template
 
 from model_utils import (
     get_session,
-    load_weights,
     load_weights_from_path,
     is_weights_loaded,
     preprocess_image,
@@ -21,25 +20,20 @@ from model_utils import (
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 64 * 1024 * 1024  # 64 MB max upload
 
-# ── Lazy-load model on first inference request ──────────────
+# ── Load model at startup from repo weights ─────────────────
 WEIGHTS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "weights", "final_model.onnx")
 _model_load_failed = False
 
-
-def _ensure_model_loaded():
-    """Load ONNX model from disk on first inference call."""
-    global _model_load_failed
-    if _model_load_failed:
-        return
-    if not os.path.exists(WEIGHTS_PATH):
-        _model_load_failed = True
-        return
+if os.path.exists(WEIGHTS_PATH):
     try:
         load_weights_from_path(WEIGHTS_PATH)
         print(f"Loaded ONNX model from {WEIGHTS_PATH}")
     except Exception as exc:
         _model_load_failed = True
-        print(f"Warning: could not load model: {exc}")
+        print(f"Warning: could not load model at startup: {exc}")
+else:
+    print(f"No weights file found at {WEIGHTS_PATH}")
+    _model_load_failed = True
 
 
 @app.route("/")
@@ -61,38 +55,11 @@ def status():
     })
 
 
-@app.route("/api/upload-weights", methods=["POST"])
-def upload_weights():
-    """Accept an .onnx file and load it into memory."""
-    if "file" not in request.files:
-        return jsonify({"error": "No file provided"}), 400
-
-    file = request.files["file"]
-    if file.filename == "":
-        return jsonify({"error": "Empty filename"}), 400
-
-    ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
-    if ext != "onnx":
-        return jsonify({"error": "Please upload an .onnx file (exported from export_onnx.py)"}), 400
-
-    try:
-        weights_bytes = file.read()
-        global _model_load_failed
-        load_weights(weights_bytes)
-        _model_load_failed = False
-        return jsonify({"message": "ONNX model loaded successfully"})
-    except Exception as exc:
-        return jsonify({"error": f"Failed to load weights: {exc}"}), 500
-
-
 @app.route("/api/segment", methods=["POST"])
 def segment():
     """Accept an image file, run ONNX inference, return results."""
-    # Lazy-load model on first inference request
-    _ensure_model_loaded()
-
     if not is_weights_loaded():
-        return jsonify({"error": "Model weights not loaded. Upload .pth or .onnx first."}), 400
+        return jsonify({"error": "Model not loaded. Check server logs."}), 500
 
     if "image" not in request.files:
         return jsonify({"error": "No image provided"}), 400
