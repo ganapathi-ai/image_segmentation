@@ -1,3 +1,4 @@
 *.pth filter=lfs
 *.onnx filter=lfs diff merge rename text
+*.onnx.data filter=lfs diff=lfs merge=lfs -text
 weights/final_model.onnx filter=lfs diff=lfs merge=lfs -text
