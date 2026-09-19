@@ -22,34 +22,14 @@ function log(msg, type = "") {
   bar.scrollTop = bar.scrollHeight;
 }
 
-function setupDropzone(dropId, inputId, onFile) {
-  const drop  = $(dropId);
-  const input = $(inputId);
-
-  drop.addEventListener("click", () => input.click());
-  drop.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") input.click(); });
-
-  drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("drag-over"); });
-  drop.addEventListener("dragleave", () => drop.classList.remove("drag-over"));
-  drop.addEventListener("drop", (e) => {
-    e.preventDefault();
-    drop.classList.remove("drag-over");
-    const file = e.dataTransfer.files[0];
-    if (file) onFile(file);
-  });
-
-  input.addEventListener("change", () => {
-    if (input.files[0]) onFile(input.files[0]);
-  });
-}
-
-// ── Boot ───────────────────────────────────────────────────
+// ── Boot: check model status ───────────────────────────────
 async function boot() {
   const dot = $("status-dot");
   const txt = $("status-text");
 
   try {
     const res = await fetch("/api/status");
+    if (!res.ok) throw new Error("HTTP " + res.status);
     const data = await res.json();
     if (data.weights_loaded) {
       modelReady = true;
@@ -59,39 +39,94 @@ async function boot() {
       setStatus(dot, txt, "error", "Model unavailable");
       log("Model weights not loaded on server.", "error");
     }
-  } catch {
+  } catch (err) {
     setStatus(dot, txt, "", "Checking…");
+    log("Status check error: " + err.message, "warn");
   }
 }
 
-// ── Image Upload ───────────────────────────────────────────
-setupDropzone("image-drop", "image-input", (file) => {
-  console.log('[DFU] File dropped:', file.name, file.type, file.size);
+// ── File input handler ─────────────────────────────────────
+function handleFile(file) {
+  console.log("[DFU] handleFile:", file?.name, file?.type, file?.size);
+  if (!file) {
+    log("No file selected.", "warn");
+    return;
+  }
   if (!file.type.startsWith("image/")) {
-    log("Unsupported file type: " + file.type, "warn");
+    log("Unsupported type: " + file.type, "warn");
     return;
   }
 
+  // Show preview
   const url = URL.createObjectURL(file);
-  const previewImg = $("preview-img");
-  previewImg.src = url;
-
+  $("preview-img").src = url;
   $("image-name").textContent = file.name;
-  $("image-size").textContent = `${(file.size / 1024).toFixed(1)} KB · ${(file.type.split("/")[1] || "file").toUpperCase()}`;
+  $("image-size").textContent = `${(file.size / 1024).toFixed(1)} KB`;
   $("image-preview").classList.add("visible");
 
-  // Enable the run button
-  $("segment-btn").disabled = false;
+  // Store file and enable button
   $("segment-btn")._imageFile = file;
+  $("segment-btn").disabled = false;
 
-  log(`Image loaded: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`);
+  log(`Loaded: ${file.name}`);
+}
+
+// ── Wire up upload zone ────────────────────────────────────
+const imageInput = $("image-input");
+const imageDrop  = $("image-drop");
+
+// Click zone → open file picker
+imageDrop.addEventListener("click", (e) => {
+  e.preventDefault();
+  console.log("[DFU] Dropzone clicked");
+  imageInput.click();
 });
 
+imageDrop.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" || e.key === " ") {
+    e.preventDefault();
+    imageInput.click();
+  }
+});
+
+// File selected via picker
+imageInput.addEventListener("change", () => {
+  console.log("[DFU] Input changed:", imageInput.files?.[0]?.name);
+  if (imageInput.files?.[0]) {
+    handleFile(imageInput.files[0]);
+  }
+});
+
+// Drag and drop
+imageDrop.addEventListener("dragover", (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  imageDrop.classList.add("drag-over");
+});
+
+imageDrop.addEventListener("dragleave", (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  imageDrop.classList.remove("drag-over");
+});
+
+imageDrop.addEventListener("drop", (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  imageDrop.classList.remove("drag-over");
+  console.log("[DFU] Files dropped:", e.dataTransfer.files?.length);
+  const file = e.dataTransfer.files?.[0];
+  if (file) handleFile(file);
+});
+
+// ── Clear image ────────────────────────────────────────────
 $("clear-image")?.addEventListener("click", () => {
   $("image-preview").classList.remove("visible");
-  $("image-input").value = "";
-  $("segment-btn").disabled = true;
+  imageInput.value = "";
   $("segment-btn")._imageFile = null;
+  $("segment-btn").disabled = true;
+
+  // Hide results
   $("viewport-grid").style.display = "none";
   $("viewport-empty").style.display = "";
   $("metrics-bar").style.display = "none";
@@ -102,16 +137,23 @@ $("clear-image")?.addEventListener("click", () => {
 $("segment-btn").addEventListener("click", async () => {
   const btn  = $("segment-btn");
   const file = btn._imageFile;
-  if (!file || !modelReady) return;
+
+  if (!file) {
+    log("No image file attached to button.", "warn");
+    return;
+  }
+  if (!modelReady) {
+    log("Model not ready yet. Please wait.", "warn");
+    return;
+  }
 
   btn.disabled = true;
 
-  // Show loading
+  // Show loading state
   const viewportLoading = $("viewport-loading");
   viewportLoading.classList.remove("hidden");
   $("viewport-grid").style.display = "none";
   $("viewport-empty").style.display = "none";
-
   $("sidebar-loading").style.display = "block";
 
   const startTime = performance.now();
@@ -121,11 +163,19 @@ $("segment-btn").addEventListener("click", async () => {
     const form = new FormData();
     form.append("image", file);
 
-    const res  = await fetch("/api/segment", { method: "POST", body: form });
+    log(`Sending ${file.name} (${(file.size / 1024).toFixed(1)} KB) to /api/segment`);
+
+    const res  = await fetch("/api/segment", {
+      method: "POST",
+      body: form,
+    });
+
+    console.log("[DFU] Response status:", res.status);
     const data = await res.json();
 
     if (!res.ok) {
-      log("Inference failed: " + (data.error || "unknown"), "error");
+      log("Error: " + (data.error || "Server error"), "error");
+      console.error("[DFU] Error response:", data);
       return;
     }
 
@@ -161,10 +211,11 @@ $("segment-btn").addEventListener("click", async () => {
     $("viewport-grid").style.display = "grid";
     $("sidebar-loading").style.display = "none";
 
-    log(`Complete: ${elapsed}s · ${coverage.toFixed(1)}% coverage · ${new Intl.NumberFormat().format(fgPixels)} px`, "success");
+    log(`Done: ${elapsed}s · ${coverage.toFixed(1)}% coverage · ${new Intl.NumberFormat().format(fgPixels)} px`, "success");
 
   } catch (err) {
     log("Network error: " + err.message, "error");
+    console.error("[DFU] Fetch error:", err);
     viewportLoading.classList.add("hidden");
     $("viewport-empty").style.display = "";
     $("sidebar-loading").style.display = "none";

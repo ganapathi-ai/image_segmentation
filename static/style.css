@@ -283,8 +283,6 @@ code, .mono {
 .upload-zone input[type="file"] {
   display: none;
 }
-
-/* Image preview in sidebar */
 .sidebar-preview {
   margin: 8px 4px 0;
   padding: 8px;
